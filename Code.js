@@ -58,19 +58,15 @@ function processTransport(data) {
   const logsSheet = ss.getSheetByName('Logs');
   const inventarioSheet = ss.getSheetByName('Inventário');
   const artefatosSheet = ss.getSheetByName('Artefatos');
+  const mainSheet = ss.getSheetByName('Main');
   const now = new Date();
 
   // --- Atualiza Inventário ---
-  // Mapear tiers e categorias para achar índices na planilha
   const tiers = inventarioSheet.getRange(2, 1, inventarioSheet.getLastRow() - 1, 1).getValues().flat();
   const categorias = inventarioSheet.getRange(1, 2, 1, inventarioSheet.getLastColumn() - 1).getValues()[0];
-
-  // Pega toda a matriz de quantidades do inventário
   const inventarioQuantidades = inventarioSheet.getRange(2, 2, tiers.length, categorias.length).getValues();
 
-  // Para cada matéria prima usada:
   data.materiasPrimas.forEach(item => {
-    // Ex: nome = "Barras 4.0" => separar em categoria e tier
     const partes = item.nome.split(' ');
     const categoria = partes[0];
     const tier = partes.slice(1).join(' ');
@@ -79,21 +75,17 @@ function processTransport(data) {
     const coluna = categorias.indexOf(categoria);
 
     if (linha >= 0 && coluna >= 0) {
-      // Atualizar a quantidade subtraindo o que foi usado
       let atual = inventarioQuantidades[linha][coluna];
       inventarioQuantidades[linha][coluna] = Math.max(0, atual - item.quantidade);
     }
   });
 
-  // Grava as quantidades atualizadas no Inventário
   inventarioSheet.getRange(2, 2, tiers.length, categorias.length).setValues(inventarioQuantidades);
 
   // --- Atualiza Artefatos ---
   if (artefatosSheet) {
-    // Pega os dados atuais de artefatos
     const artefatosDados = artefatosSheet.getRange(2, 1, artefatosSheet.getLastRow() - 1, 2).getValues();
 
-    // Para cada artefato usado, subtrai da planilha
     data.artefatos.forEach(item => {
       const idx = artefatosDados.findIndex(row => row[0] === item.nome);
       if (idx >= 0) {
@@ -102,7 +94,6 @@ function processTransport(data) {
       }
     });
 
-    // Grava as quantidades atualizadas de volta
     artefatosSheet.getRange(2, 2, artefatosDados.length, 1).setValues(artefatosDados.map(row => [row[1]]));
   }
 
@@ -115,6 +106,73 @@ function processTransport(data) {
     'Transporte iniciado e estoque atualizado'
   ]);
 
+  // --- Marca Transporte como TRUE na aba Main ---
+  if (mainSheet) {
+    const produtos = mainSheet.getRange('A2:A' + mainSheet.getLastRow()).getValues().flat();
+    const index = produtos.findIndex(p => typeof p === 'string' && p.trim().toLowerCase() === data.produto.trim().toLowerCase());
+
+    if (index !== -1) {
+      const linha = index + 2; // compensar cabeçalho
+      mainSheet.getRange(linha, 3).setValue(true); // Coluna C = Transporte
+    }
+  }
+
   return true;
+}
+function onEdit(e) {
+  const sheet = e.range.getSheet();
+  const col = e.range.getColumn();
+  const row = e.range.getRow();
+  const newValue = e.value;
+  const oldValue = e.oldValue;
+
+  if (sheet.getName() !== 'Main') return;
+
+  const ui = SpreadsheetApp.getUi();
+
+  // COLUNA C (Transporte): Cancelar transporte
+    // COLUNA C (Transporte): Cancelar transporte
+  if (col === 3) {
+    const isUnchecked = newValue === null || newValue === false || newValue === 'FALSE';
+    const wasChecked = oldValue === true || oldValue === 'TRUE';
+
+    if (wasChecked && isUnchecked) {
+      const response = ui.alert('Cancelar esta produção?', ui.ButtonSet.YES_NO);
+      if (response === ui.Button.NO) {
+        sheet.getRange(row, col).setValue(true);
+      }
+    }
+  }
+
+
+  // COLUNA D (Produção): Ignorar
+  if (col === 4) return;
+
+  // COLUNA E (Entregue): Confirmar entrega
+  if (col === 5 && newValue === 'TRUE') {
+    const response = ui.alert('Entregar produto agora?', ui.ButtonSet.YES_NO);
+    if (response === ui.Button.NO) {
+      sheet.getRange(row, col).setValue(false);
+      return;
+    }
+
+    // Confirmou a entrega — limpar linha
+    const rowValues = sheet.getRange(row, 1, 1, sheet.getLastColumn()).getValues()[0];
+    const produto = rowValues[0]; // Coluna A
+    const now = new Date();
+    const logsSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Logs');
+
+    // Logar ação
+    logsSheet.appendRow([
+      now,
+      produto,
+      '',
+      '',
+      'Produto entregue e linha limpa'
+    ]);
+
+    // Limpar a linha inteira
+    sheet.getRange(row, 1, 1, sheet.getLastColumn()).clearContent();
+  }
 }
 
