@@ -59,6 +59,7 @@ function processTransport(data) {
   const inventarioSheet = ss.getSheetByName('Inventário');
   const artefatosSheet = ss.getSheetByName('Artefatos');
   const mainSheet = ss.getSheetByName('Main');
+  const user = Session.getActiveUser().getEmail() || 'Desconhecido';
   const now = new Date();
 
   // --- Atualiza Inventário ---
@@ -99,12 +100,13 @@ function processTransport(data) {
 
   // --- Log ---
   logsSheet.appendRow([
-    now,
-    data.produto,
-    JSON.stringify(data.materiasPrimas),
-    JSON.stringify(data.artefatos),
-    'Transporte iniciado e estoque atualizado'
-  ]);
+  Utilities.formatDate(now, ss.getSpreadsheetTimeZone(), 'dd/MM/yyyy HH:mm:ss'),
+  data.produto,
+  JSON.stringify(data.materiasPrimas),
+  JSON.stringify(data.artefatos),
+  'Transporte iniciado e estoque atualizado',
+  user
+]);
 
   // --- Marca Transporte como TRUE na aba Main ---
   if (mainSheet) {
@@ -120,6 +122,7 @@ function processTransport(data) {
   return true;
 }
 function onEdit(e) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet(); // <-- ESSA LINHA FALTAVA
   const sheet = e.range.getSheet();
   const col = e.range.getColumn();
   const row = e.range.getRow();
@@ -131,7 +134,6 @@ function onEdit(e) {
   const ui = SpreadsheetApp.getUi();
 
   // COLUNA C (Transporte): Cancelar transporte
-    // COLUNA C (Transporte): Cancelar transporte
   if (col === 3) {
     const isUnchecked = newValue === null || newValue === false || newValue === 'FALSE';
     const wasChecked = oldValue === true || oldValue === 'TRUE';
@@ -143,36 +145,41 @@ function onEdit(e) {
       }
     }
   }
-
-
+  
   // COLUNA D (Produção): Ignorar
   if (col === 4) return;
 
   // COLUNA E (Entregue): Confirmar entrega
-  if (col === 5 && newValue === 'TRUE') {
-    const response = ui.alert('Entregar produto agora?', ui.ButtonSet.YES_NO);
-    if (response === ui.Button.NO) {
-      sheet.getRange(row, col).setValue(false);
-      return;
+  if (col === 5) {
+    if (e.value === 'TRUE' || e.value === true) {
+      const response = ui.alert('Entregar produto agora?', ui.ButtonSet.YES_NO);
+
+      if (response === ui.Button.YES) {
+        const produto = sheet.getRange(row, 1).getValue(); // Coluna A
+        const now = new Date();
+        const user = Session.getActiveUser().getEmail() || 'Desconhecido';
+
+        // Limpa toda a linha
+        sheet.getRange(row, 1, 1, sheet.getLastColumn()).clearContent();
+
+        // Registra no log
+        const logsSheet = ss.getSheetByName('Logs');
+        if (logsSheet) {
+          logsSheet.appendRow([
+            Utilities.formatDate(now, ss.getSpreadsheetTimeZone(), 'dd/MM/yyyy HH:mm:ss'),
+            produto,
+            '',
+            '',
+            'Produto entregue e linha limpa',
+            user
+          ]);
+        } else {
+          Logger.log('Aba "Logs" não encontrada.');
+        }
+      } else {
+        // Cancela a marcação da checkbox
+        sheet.getRange(row, col).setValue(false);
+      }
     }
-
-    // Confirmou a entrega — limpar linha
-    const rowValues = sheet.getRange(row, 1, 1, sheet.getLastColumn()).getValues()[0];
-    const produto = rowValues[0]; // Coluna A
-    const now = new Date();
-    const logsSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Logs');
-
-    // Logar ação
-    logsSheet.appendRow([
-      now,
-      produto,
-      '',
-      '',
-      'Produto entregue e linha limpa'
-    ]);
-
-    // Limpar a linha inteira
-    sheet.getRange(row, 1, 1, sheet.getLastColumn()).clearContent();
   }
 }
-
