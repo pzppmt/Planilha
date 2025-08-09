@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+  <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 10px;
+    }
+    label {
+      font-weight: bold;
+      margin-top: 10px;
+      display: block;
+    }
+    select, input[type="number"], input[type="text"] {
+      width: 100%;
+      padding: 4px;
+      margin: 5px 0 10px;
+      box-sizing: border-box;
+    }
+    .item-quantidade {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 5px;
+    }
+    .item-quantidade input {
+      width: 60px;
+    }
+  </style>
+</head>
+<body>
+  <h3>Iniciar Transporte</h3>
+
+  <label for="produto">Produto:</label>
+  <select id="produto"></select>
+
+  <label for="materias">Matérias-Primas:</label>
+  <select id="materias" multiple></select>
+  <div id="materia-quantidades"></div>
+
+  <label for="artefatos">Artefatos:</label>
+  <select id="artefatos" multiple></select>
+  <div id="artefato-quantidades"></div>
+
+  <button onclick="enviar()">Iniciar Transporte</button>
+
+  <script>
+    let materiasPrimasData = [];
+    let artefatosData = [];
+
+    function carregarDados(data) {
+      // Produto com Select2 no modo tags (permite digitar e buscar)
+      $('#produto').select2({
+        data: data.produtos.map(p => ({ id: p, text: p })),
+        placeholder: "Digite ou selecione o produto",
+        width: '100%',
+        tags: true,
+        allowClear: true
+      });
+
+      materiasPrimasData = data.inventario || [];
+      $('#materias').select2({
+        data: materiasPrimasData.map(mp => ({ id: mp.nome, text: `${mp.nome} (${mp.quantidade})` })),
+        placeholder: "Selecione matérias-primas",
+        width: '100%'
+      });
+
+      artefatosData = data.artefatos || [];
+      $('#artefatos').select2({
+        data: artefatosData.map(ar => ({ id: ar[0], text: `${ar[0]} (${ar[1]})` })),
+        placeholder: "Selecione artefatos",
+        width: '100%'
+      });
+    }
+
+    $('#materias').on('change', function () {
+      const selecionados = $(this).val() || [];
+      const container = $('#materia-quantidades');
+      container.empty();
+      selecionados.forEach(nome => {
+        container.append(`
+          <div class="item-quantidade">
+            <label>${nome}</label>
+            <input type="number" min="1" id="mp-${nome}" />
+          </div>
+        `);
+      });
+    });
+
+    $('#artefatos').on('change', function () {
+      const selecionados = $(this).val() || [];
+      const container = $('#artefato-quantidades');
+      container.empty();
+      selecionados.forEach(nome => {
+        container.append(`
+          <div class="item-quantidade">
+            <label>${nome}</label>
+            <input type="number" min="1" id="ar-${nome}" />
+          </div>
+        `);
+      });
+    });
+
+    function enviar() {
+      const produto = $('#produto').val();
+
+      if (!produto || produto.trim() === '') {
+        alert("Por favor, selecione ou digite um produto.");
+        return;
+      }
+
+      try {
+        const materiasSelecionadas = ($('#materias').val() || []).map(nome => {
+          const inputQtd = document.getElementById(`mp-${nome}`);
+          const qtd = inputQtd ? parseInt(inputQtd.value) : 0;
+          if (!qtd || qtd <= 0) {
+            alert(`Quantidade inválida para matéria-prima: ${nome}. Digite um valor maior que zero.`);
+            throw new Error("Quantidade inválida");
+          }
+          return { nome, quantidade: qtd };
+        });
+
+        const artefatosSelecionados = ($('#artefatos').val() || []).map(nome => {
+          const inputQtd = document.getElementById(`ar-${nome}`);
+          const qtd = inputQtd ? parseInt(inputQtd.value) : 0;
+          if (!qtd || qtd <= 0) {
+            alert(`Quantidade inválida para artefato: ${nome}. Digite um valor maior que zero.`);
+            throw new Error("Quantidade inválida");
+          }
+          return { nome, quantidade: qtd };
+        });
+
+        google.script.run
+          .withSuccessHandler(() => {
+            alert("Transporte iniciado com sucesso!");
+            google.script.host.close();
+          })
+          .withFailureHandler(err => {
+            alert("Erro ao iniciar transporte: " + err.message);
+          })
+          .processTransport({
+            produto,
+            materiasPrimas: materiasSelecionadas,
+            artefatos: artefatosSelecionados
+          });
+      } catch(e) {
+        // Erro já tratado com alert
+      }
+    }
+
+    google.script.run.withSuccessHandler(carregarDados).getData();
+  </script>
+</body>
+</html>
